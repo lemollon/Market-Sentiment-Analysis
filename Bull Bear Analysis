@@ -1,0 +1,53 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Base file path
+file_path = '/Users/leronmollon/stock_analysis/'
+
+# Loading the datasets
+unusual_options_activity = pd.read_csv(file_path + 'unusual-stock-options-activity-08-23-2023.csv')
+stock_iv_rank = pd.read_csv(file_path + 'stock-iv-rank-and-iv-percentile-08-23-2023.csv')
+most_active_stock_options = pd.read_csv(file_path + 'most-active-stock-options-08-23-2023.csv')
+stocks_increase_volatility = pd.read_csv(file_path + 'stocks-increase-percent-change-in-volatility-08-23-2023.csv')
+stocks_increase_open_interest = pd.read_csv(file_path + 'stocks-increase-change-in-open-interest-08-23-2023.csv')
+
+# Merging and preprocessing
+data = (
+    unusual_options_activity
+    .merge(stock_iv_rank[['Symbol', 'IV Rank', 'IV Pctl']], on='Symbol', how='left')
+    .merge(most_active_stock_options[['Symbol', '% Put', '% Call', 'P/C Vol']], on='Symbol', how='left')
+    .merge(stocks_increase_volatility[['Symbol', 'Type', 'Strike', 'Exp Date', 'IV %Chg']], on=['Symbol', 'Type', 'Strike', 'Exp Date'], how='left')
+    .merge(stocks_increase_open_interest[['Symbol', 'Type', 'Strike', 'Exp Date', 'OI Chg']], on=['Symbol', 'Type', 'Strike', 'Exp Date'], how='left')
+)
+
+# Convert IV to float by removing the '%' sign
+data['IV'] = data['IV'].str.rstrip('%').astype('float')
+
+# Filtering OTM and cheap options
+otm_options = data[
+    ((data['Type'] == 'Call') & (data['Strike'] > data['Price~'])) |
+    ((data['Type'] == 'Put') & (data['Strike'] < data['Price~']))
+]
+ask_price_threshold = otm_options['Ask'].quantile(0.25)
+cheap_otm_options = otm_options[otm_options['Ask'] <= ask_price_threshold]
+
+# Separate the data into bullish (Call) and bearish (Put) opportunities
+bullish_opportunities = cheap_otm_options[cheap_otm_options['Type'] == 'Call']
+bearish_opportunities = cheap_otm_options[cheap_otm_options['Type'] == 'Put']
+
+# Calculate the average strike price by expiration date for bullish opportunities
+strike_price_by_expiration_date_bullish = bullish_opportunities.groupby('Exp Date')['Strike'].mean().sort_index()
+
+# Calculate the average strike price by expiration date for bearish opportunities
+strike_price_by_expiration_date_bearish = bearish_opportunities.groupby('Exp Date')['Strike'].mean().sort_index()
+
+# Plot the average strike price across different expiration dates for both bullish and bearish opportunities
+plt.figure(figsize=(12, 6))
+strike_price_by_expiration_date_bullish.plot(kind='line', label='Bullish Opportunities')
+strike_price_by_expiration_date_bearish.plot(kind='line', label='Bearish Opportunities')
+plt.title('Strike Price by Expiration Date')
+plt.xlabel('Expiration Date')
+plt.ylabel('Average Strike Price')
+plt.xticks(rotation=45)
+plt.legend()
+plt.show()
